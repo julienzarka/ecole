@@ -127,9 +127,10 @@ apes/{apeId}                              # un par école au max
 reports/{reportId}
   - schoolId (UAI)
   - reporterUid
-  - agentType: 'teacher'|'aesh'|'aed'|'cpe'|'cantine'|'etude'  # 2nd degré
-  - level: '6e'|'5e'|'4e'|'3e'|'2nde'|'1ere'|'terminale'        # nullable AESH/AED/CPE
-  - discipline: codifiée (maths|français|...)                   # obligatoire si agentType='teacher'
+  - agentType: 'teacher'|'aesh'|'atsem'|'animator'|'aed'|'cpe'|'cantine'|'garderie'|'etude'
+  - level: 'ps'|'ms'|'gs'|'cp'|...|'cm2'|'6e'|...|'terminale'   # nullable selon agentType
+  - schoolStage: 'maternelle'|'elementaire'|'college'|'lycee'   # dérivé, indexé
+  - discipline: codifiée (maths|français|...)                   # obligatoire si 2nd degré + teacher, sinon null
   - date, durationHours
   - replaced: bool|null
   - context: 'absence'|'greve'|'formation'|'inconnu'
@@ -191,7 +192,7 @@ Puisque la validation est à 100 % entre les mains des APE, on n'a pas besoin de
 | **Périmètre géographique** | National (France entière) dès le départ. |
 | **Modèle économique** | App **gratuite** et **open source** (licence à choisir : AGPL pour le serveur, MIT pour l'app mobile recommandé). |
 | **Utilisateurs** | Deux rôles : **parents** (déclarent) et **APE** (valident). Plus un rôle technique **admin**. |
-| **Périscolaire** | Inclus dès le v1, mais périmètre 2nd degré : AESH, AED (surveillants), CPE, agents de cantine, étude dirigée. (ATSEM et animateurs ALSH sont propres au 1er degré → reportés en v2.) |
+| **Périscolaire** | Inclus dès le v1, périmètre complet : AESH, ATSEM (mat.), animateurs ALSH/garderie/étude (1er degré), AED (surveillants), CPE, agents de cantine (1er + 2nd degré). |
 | **Validation des signalements** | **Seules les APE peuvent valider** un signalement. Pas de validation pair-à-pair par d'autres parents. |
 | **Onboarding APE** | **Une APE par école.** Un utilisateur déclare être membre de l'APE de l'école X ; un **admin** de la plateforme valide manuellement cette adhésion avant de lui donner les droits de validateur. |
 
@@ -208,7 +209,7 @@ Puisque la validation est à 100 % entre les mains des APE, on n'a pas besoin de
 | Sujet | Décision |
 |---|---|
 | **Statut juridique** | Personne physique au démarrage. ⚠️ voir « Risques » ci-dessous. |
-| **Niveaux v1** | **2nd degré uniquement** (collège + lycée, 6e → terminale). Le 1er degré est exclu du v1 et pourra arriver en v2. |
+| **Niveaux v1** | **1er + 2nd degré** : maternelle, élémentaire, collège, lycée (PS → terminale). |
 | **Preuve d'adhésion APE** | **Upload obligatoire** d'un justificatif (PV d'AG, attestation présidente APE, mandat). En option, **double-vérification par mail** : un admin envoie un mail à l'adresse publique de l'APE (issue de l'annuaire EN ou saisie par le candidat) avec un lien de confirmation. |
 | **École sans APE** | Un **admin peut valider** directement les signalements orphelins (pour ne pas bloquer le système au démarrage et dans les écoles sans APE constituée). |
 
@@ -218,7 +219,11 @@ Puisque la validation est à 100 % entre les mains des APE, on n'a pas besoin de
    - chiffrement par défaut, accès lecture **réservé aux admins**,
    - règle de **purge automatique** des justificatifs 24 mois après validation (RGPD : minimisation).
 2. **Cloud Function `requestApeMailValidation`** : génère un token signé, envoie un mail (SendGrid free tier ou Mailtrap dev) à l'adresse APE → callback HTTP marque la demande comme `mail_verified`. L'admin garde le dernier mot.
-3. **2nd degré uniquement** : `discipline` codifiée (référentiel : maths, français, anglais, SVT, …) **obligatoire** sur les signalements profs ; `level` = 6e → terminale. On indexe par discipline pour permettre des stats « heures perdues en maths cette année ». Le filtre par classe (6eA, 4eC) **n'est pas demandé** au parent (risque de réidentification de l'enseignant) — seul le niveau suffit.
+3. **1er + 2nd degré** : modèle hybride.
+   - `level` couvre tout : `ps`|`ms`|`gs`|`cp`|`ce1`|`ce2`|`cm1`|`cm2`|`6e`|`5e`|`4e`|`3e`|`2nde`|`1ere`|`terminale`.
+   - `discipline` codifiée (maths, français, anglais, SVT, …) **obligatoire uniquement en 2nd degré** quand `agentType='teacher'`. En 1er degré, le prof unique de la classe couvre toutes les matières → on stocke `discipline=null`.
+   - Le filtre par classe (CM2 B, 4e A) **n'est pas demandé** au parent (risque de réidentification de l'enseignant) — seul le niveau suffit.
+   - Les types d'agents disponibles dépendent du niveau (cf. modèle Firestore).
 4. **Rôle admin renforcé** : peut valider directement un signalement orphelin (école sans APE) → ajouter `validatedBy.role` dans le modèle pour distinguer validation APE et validation admin dans les stats (transparence).
 
 ### ⚠️ Risque RGPD spécifique au statut « personne physique »
