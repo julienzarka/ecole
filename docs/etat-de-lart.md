@@ -107,23 +107,38 @@ Signaler un agent public (prof, AESH, ATSEM, animateur) **par son nom** est un t
 schools/{uai}                       # snapshot annuaire EN
   - name, type, commune, epci, dep, academy, geo
 
+users/{uid}
+  - role: 'parent' | 'ape' | 'admin'        # mirroir des custom claims
+  - schoolId (UAI)                          # école rattachée
+  - displayName, createdAt
+  - rejectedReportsCount                    # anti-spam
+
+apeMembershipRequests/{reqId}
+  - uid, schoolId, claimedRole ('president'|'member'|...)
+  - evidence: text + optional fileRef
+  - status: 'pending'|'approved'|'rejected'
+  - reviewedBy (admin uid), reviewedAt
+
+apes/{apeId}                              # un par école au max
+  - schoolId (UAI)                         # unique
+  - memberUids: [uid, ...]
+  - createdAt
+
 reports/{reportId}
   - schoolId (UAI)
-  - reporterId (uid parent)
-  - agentType: 'teacher'|'aesh'|'animator'|'atsem'
-  - level: 'maternelle'|'cp'|...|'terminale'  (nullable AESH)
-  - discipline: codifiée, jamais texte libre        # second degré
+  - reporterUid
+  - agentType: 'teacher'|'aesh'|'atsem'|'animator'|'cantine'|'garderie'
+  - level: 'maternelle'|'cp'|...|'terminale'  (nullable selon agentType)
+  - discipline: codifiée, jamais texte libre        # second degré uniquement
   - date, durationHours
   - replaced: bool|null
   - context: 'absence'|'greve'|'formation'|'inconnu'
-  - status: 'pending'|'validated'|'rejected'|'duplicate'
+  - status: 'pending'|'validated'|'rejected'
+  - validatedBy (uid APE), validatedAt
   - createdAt, updatedAt
 
-validations/{validationId}
-  - reportId, apeId, validatorUid
-  - decision, comment, evidenceCount
-
-aggregates/{epci}/{period}          # pré-calculé via Cloud Function nocturne
+aggregates/{scope}/{period}             # pré-calculé via Cloud Function nocturne
+  - scope = 'school:UAI' | 'commune:INSEE' | 'epci:SIREN' | 'dep:DEP' | 'national'
   - hoursLost, replacementRate, byAgentType, bySchool (top N)
 ```
 
@@ -139,17 +154,19 @@ aggregates/{epci}/{period}          # pré-calculé via Cloud Function nocturne
 - **i18n** : FR uniquement au lancement, mais arborescence `intl` prête.
 
 ### 5.4 Modération & validation APE — le cœur fonctionnel
-1. Le **parent** déclare → `status = pending`.
-2. Cloud Function **vérifie** : champs obligatoires, fenêtre temporelle (≤ 30 j), absence de nom propre dans le commentaire, école valide, parent rattaché à cette école.
-3. Un **second parent** ou un **représentant APE rattaché à l'école** confirme → `status = validated`.
-4. Les agrégats publics ne consomment **que** les `validated`.
-5. Les APE locales ont un rôle « modérateur » : peuvent rejeter, fusionner les doublons, ajouter le contexte.
+1. Un **utilisateur** s'inscrit (Firebase Auth, e-mail/Google/Apple) et choisit son rôle :
+   - **parent** rattaché à une école → accès immédiat à la déclaration.
+   - **APE** rattaché à une école → demande envoyée à un **admin**, statut `pending` jusqu'à validation manuelle.
+2. Le **parent** déclare → `status = pending`. Cloud Function vérifie : champs obligatoires, fenêtre temporelle (≤ 30 j), absence de nom propre (regex + liste noire), école valide, pas de doublon évident.
+3. Un **membre de l'APE** rattaché à cette école valide ou rejette → `status = validated | rejected`.
+4. Les **agrégats publics** ne consomment **que** les `validated`.
+5. **Admin** : back-office web minimal pour valider les demandes d'adhésion APE, gérer les conflits (deux APE qui prétendent à la même école), retirer un signalement sur réclamation RGPD.
 
-### 5.5 Modèle de confiance (trust score)
-Inspiré des plateformes civic-tech (Civic360, Civic Drishti) :
-- Score parent ↑ à chaque signalement validé, ↓ à chaque rejet.
-- Au-delà d'un seuil, validation single-vote suffit ; sinon double-vote requis.
-- Score APE = 1 par construction (organisation déclarée).
+### 5.5 Pas de trust score parent dans le v1
+Puisque la validation est à 100 % entre les mains des APE, on n'a pas besoin de modèle de confiance pair-à-pair côté parents. On garde simplement :
+- compteur de rejets par utilisateur (auto-blocage à N rejets sur fenêtre glissante) ;
+- détection d'anomalie côté serveur (pic anormal de signalements sur une école / un compte) ;
+- App Check pour bloquer les bots.
 
 ---
 
@@ -167,14 +184,31 @@ Inspiré des plateformes civic-tech (Civic360, Civic Drishti) :
 
 ---
 
-## 7. Ce qu'il reste à décider avant le MVP
+## 7. Décisions produit (arrêtées)
 
-1. **Périmètre géographique de lancement** : une seule agglomération pilote (ex. Métropole de Lyon, Nantes Métropole) ou national d'emblée ?
-2. **Statut juridique** : asso loi 1901 portant le traitement RGPD, ou s'adosser à une APE existante ?
-3. **Public cible v1** : 1er degré uniquement (plus simple : 1 prof / classe) ou 1er + 2nd degré ?
-4. **Inclure le périscolaire dès le v1** ? (différenciant fort, mais nouveau modèle de données : agent municipal, pas EN).
-5. **Modèle de validation APE** : adhésion explicite des APE (chaque APE a un compte « modérateur »), ou validation par 2 parents quelconques de la même école ?
-6. **Monétisation / soutenabilité** : 100 % bénévole + dons, ou subvention CNAF / collectivités ?
+| Sujet | Décision |
+|---|---|
+| **Périmètre géographique** | National (France entière) dès le départ. |
+| **Modèle économique** | App **gratuite** et **open source** (licence à choisir : AGPL pour le serveur, MIT pour l'app mobile recommandé). |
+| **Utilisateurs** | Deux rôles : **parents** (déclarent) et **APE** (valident). Plus un rôle technique **admin**. |
+| **Périscolaire** | Inclus dès le v1 (animateurs, ATSEM, AESH, cantine, garderie). |
+| **Validation des signalements** | **Seules les APE peuvent valider** un signalement. Pas de validation pair-à-pair par d'autres parents. |
+| **Onboarding APE** | **Une APE par école.** Un utilisateur déclare être membre de l'APE de l'école X ; un **admin** de la plateforme valide manuellement cette adhésion avant de lui donner les droits de validateur. |
+
+### Conséquences sur l'architecture
+
+1. **Trois rôles** Firestore (`role: 'parent' | 'ape' | 'admin'`), gérés par **custom claims** Firebase Auth.
+2. **Modèle simplifié** : une `school` a au plus un `apeId`. Tout signalement sur cette école n'est validable que par les membres de cette APE.
+3. **File d'attente admin** : collection `apeMembershipRequests` (pending → approved/rejected) avec un dashboard admin web minimaliste.
+4. **Pas de trust score parent** dans le v1 (puisque les parents ne valident plus) — on garde un simple compteur de signalements rejetés pour détecter le spam.
+5. **Pas de chevauchement APE** : si plusieurs fédérations cohabitent (FCPE + PEEP + APE indépendante) sur la même école, un seul compte APE est rattaché ; le choix se règle hors-app (ex. premier arrivé, ou modèle « collectif APE de l'école »). À expliciter dans la charte.
+
+### Questions encore ouvertes
+
+1. **Statut juridique du porteur** : asso loi 1901 dédiée (recommandé pour porter le traitement RGPD et signer la charte APE) ou personne physique au démarrage ?
+2. **Niveaux scolaires v1** : 1er degré (maternelle + élémentaire) seulement, ou 1er + 2nd degré (collège + lycée) d'emblée ? Le 2nd degré complexifie le modèle (plusieurs profs/jour, disciplines, emplois du temps).
+3. **Preuve d'adhésion APE** que l'admin doit vérifier : nom + rôle déclaré, ou pièce justificative (PV d'AG, attestation présidente APE, mail @ape-écolexyz) ? À cadrer pour fiabiliser la validation.
+4. **Et si une école n'a pas d'APE ?** Les signalements restent en `pending` indéfiniment, ou sont automatiquement consolidés au-delà d'un seuil (ex. 5 parents distincts confirment) ?
 
 ---
 
