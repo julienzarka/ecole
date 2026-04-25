@@ -127,9 +127,9 @@ apes/{apeId}                              # un par école au max
 reports/{reportId}
   - schoolId (UAI)
   - reporterUid
-  - agentType: 'teacher'|'aesh'|'atsem'|'animator'|'cantine'|'garderie'
-  - level: 'maternelle'|'cp'|...|'terminale'  (nullable selon agentType)
-  - discipline: codifiée, jamais texte libre        # second degré uniquement
+  - agentType: 'teacher'|'aesh'|'aed'|'cpe'|'cantine'|'etude'  # 2nd degré
+  - level: '6e'|'5e'|'4e'|'3e'|'2nde'|'1ere'|'terminale'        # nullable AESH/AED/CPE
+  - discipline: codifiée (maths|français|...)                   # obligatoire si agentType='teacher'
   - date, durationHours
   - replaced: bool|null
   - context: 'absence'|'greve'|'formation'|'inconnu'
@@ -191,7 +191,7 @@ Puisque la validation est à 100 % entre les mains des APE, on n'a pas besoin de
 | **Périmètre géographique** | National (France entière) dès le départ. |
 | **Modèle économique** | App **gratuite** et **open source** (licence à choisir : AGPL pour le serveur, MIT pour l'app mobile recommandé). |
 | **Utilisateurs** | Deux rôles : **parents** (déclarent) et **APE** (valident). Plus un rôle technique **admin**. |
-| **Périscolaire** | Inclus dès le v1 (animateurs, ATSEM, AESH, cantine, garderie). |
+| **Périscolaire** | Inclus dès le v1, mais périmètre 2nd degré : AESH, AED (surveillants), CPE, agents de cantine, étude dirigée. (ATSEM et animateurs ALSH sont propres au 1er degré → reportés en v2.) |
 | **Validation des signalements** | **Seules les APE peuvent valider** un signalement. Pas de validation pair-à-pair par d'autres parents. |
 | **Onboarding APE** | **Une APE par école.** Un utilisateur déclare être membre de l'APE de l'école X ; un **admin** de la plateforme valide manuellement cette adhésion avant de lui donner les droits de validateur. |
 
@@ -203,12 +203,34 @@ Puisque la validation est à 100 % entre les mains des APE, on n'a pas besoin de
 4. **Pas de trust score parent** dans le v1 (puisque les parents ne valident plus) — on garde un simple compteur de signalements rejetés pour détecter le spam.
 5. **Pas de chevauchement APE** : si plusieurs fédérations cohabitent (FCPE + PEEP + APE indépendante) sur la même école, un seul compte APE est rattaché ; le choix se règle hors-app (ex. premier arrivé, ou modèle « collectif APE de l'école »). À expliciter dans la charte.
 
-### Questions encore ouvertes
+### Décisions complémentaires
 
-1. **Statut juridique du porteur** : asso loi 1901 dédiée (recommandé pour porter le traitement RGPD et signer la charte APE) ou personne physique au démarrage ?
-2. **Niveaux scolaires v1** : 1er degré (maternelle + élémentaire) seulement, ou 1er + 2nd degré (collège + lycée) d'emblée ? Le 2nd degré complexifie le modèle (plusieurs profs/jour, disciplines, emplois du temps).
-3. **Preuve d'adhésion APE** que l'admin doit vérifier : nom + rôle déclaré, ou pièce justificative (PV d'AG, attestation présidente APE, mail @ape-écolexyz) ? À cadrer pour fiabiliser la validation.
-4. **Et si une école n'a pas d'APE ?** Les signalements restent en `pending` indéfiniment, ou sont automatiquement consolidés au-delà d'un seuil (ex. 5 parents distincts confirment) ?
+| Sujet | Décision |
+|---|---|
+| **Statut juridique** | Personne physique au démarrage. ⚠️ voir « Risques » ci-dessous. |
+| **Niveaux v1** | **2nd degré uniquement** (collège + lycée, 6e → terminale). Le 1er degré est exclu du v1 et pourra arriver en v2. |
+| **Preuve d'adhésion APE** | **Upload obligatoire** d'un justificatif (PV d'AG, attestation présidente APE, mandat). En option, **double-vérification par mail** : un admin envoie un mail à l'adresse publique de l'APE (issue de l'annuaire EN ou saisie par le candidat) avec un lien de confirmation. |
+| **École sans APE** | Un **admin peut valider** directement les signalements orphelins (pour ne pas bloquer le système au démarrage et dans les écoles sans APE constituée). |
+
+### Conséquences techniques de ces décisions
+
+1. **Cloud Storage** activé pour stocker les justificatifs APE (Cloud Storage 5 Go gratuits — large), avec :
+   - chiffrement par défaut, accès lecture **réservé aux admins**,
+   - règle de **purge automatique** des justificatifs 24 mois après validation (RGPD : minimisation).
+2. **Cloud Function `requestApeMailValidation`** : génère un token signé, envoie un mail (SendGrid free tier ou Mailtrap dev) à l'adresse APE → callback HTTP marque la demande comme `mail_verified`. L'admin garde le dernier mot.
+3. **2nd degré uniquement** : `discipline` codifiée (référentiel : maths, français, anglais, SVT, …) **obligatoire** sur les signalements profs ; `level` = 6e → terminale. On indexe par discipline pour permettre des stats « heures perdues en maths cette année ». Le filtre par classe (6eA, 4eC) **n'est pas demandé** au parent (risque de réidentification de l'enseignant) — seul le niveau suffit.
+4. **Rôle admin renforcé** : peut valider directement un signalement orphelin (école sans APE) → ajouter `validatedBy.role` dans le modèle pour distinguer validation APE et validation admin dans les stats (transparence).
+
+### ⚠️ Risque RGPD spécifique au statut « personne physique »
+
+Porter le traitement en perso est **possible** mais présente plusieurs faiblesses qu'il faut documenter et accepter :
+
+- **Responsabilité personnelle illimitée** en cas de plainte CNIL (jusqu'à 20 M€ ou 4 % du CA) ou en cas de procès en diffamation d'un agent public.
+- **Pas de DPO obligatoire** sous le seuil, mais il faut tout de même tenir un registre des traitements et publier une politique de confidentialité signée.
+- **Crédibilité institutionnelle réduite** : les APE et collectivités sont plus à l'aise pour signer une charte avec une asso 1901.
+- **Mention obligatoire** dans les CGU : nom + adresse du responsable de traitement (= toi). Pas de pseudonyme possible.
+
+**Recommandation forte** : créer une **asso loi 1901 dédiée dès qu'il y a > 50 utilisateurs actifs** ou dès la première sollicitation média/collectivité. Coût : ~50 € de déclaration en préfecture. Ça ne change rien au code, mais ça blinde juridiquement et ça libère les dons défiscalisés.
 
 ---
 
