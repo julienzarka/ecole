@@ -8,8 +8,14 @@ enum ReportStatus { pending, validated, rejected, duplicate }
 
 enum ReportContext { absence, greve, formation, inconnu }
 
+/// Codes de rejet, partagés entre la modération auto serveur et la
+/// validation manuelle par l'APE / l'admin.
+/// Cf. backend/functions/src/moderation.ts et docs/specs/etats-et-messages.md.
 enum RejectCode {
   outOfWindow,
+  invalidDuration,
+  missingLevel,
+  missingDiscipline,
   duplicate,
   wrongSchool,
   nominative,

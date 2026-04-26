@@ -8,8 +8,9 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: EcoleAssoApp()));
     await tester.pumpAndSettle();
 
-    expect(find.text('école-asso'), findsWidgets);
+    expect(find.text('Signaler en 30 secondes'), findsOneWidget);
     expect(find.text('Suivant'), findsOneWidget);
+    expect(find.text('Passer'), findsOneWidget);
   });
 
   testWidgets('Onboarding skip jumps to login', (WidgetTester tester) async {
@@ -20,5 +21,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Continuer avec Google'), findsOneWidget);
+    expect(find.text('Continuer avec Apple'), findsOneWidget);
   });
 }

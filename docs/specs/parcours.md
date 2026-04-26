@@ -221,7 +221,7 @@ E.62 Page école (UAI)
    │  - pas de vue par enseignant ni par classe
 ```
 
-**K-anonymat** : si une maille n'a pas atteint **≥ 3 signalements distincts validés** ET **≥ 2 parents distincts** sur la période demandée, on affiche « Données insuffisantes » plutôt qu'un chiffre.
+**K-anonymat** : on affiche un chiffre **uniquement si** la maille a atteint **≥ 3 signalements distincts validés** ET **≥ 2 parents distincts** sur la période demandée. Sinon → « Données insuffisantes ». Implémenté dans `backend/functions/src/aggregates.ts` (`K_MIN_REPORTS=3`, `K_MIN_REPORTERS=2`).
 
 ---
 

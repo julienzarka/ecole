@@ -58,15 +58,29 @@ Modale :
 | Demande APE rejetée | utilisateur | « Demande APE non retenue » | « Motif : {motif}. Vous pouvez en soumettre une nouvelle. » |
 | Nouveaux signalements à valider | APE | « {n} nouveaux signalements » | « À valider pour {école}. » |
 
-## Codes de motif de rejet (codifiés, pas de texte libre côté APE)
+## Codes de motif de rejet
+
+Liste codifiée commune à la **modération automatique serveur** et à la **validation manuelle APE/admin**. Pas de texte libre côté parent.
+
+### Codes générés automatiquement par `onReportCreate` (serveur)
 
 | Code | Libellé court | Libellé long |
 |---|---|---|
 | `out_of_window` | hors fenêtre | Date hors de la fenêtre de 30 jours. |
+| `invalid_duration` | durée invalide | Durée nulle, négative ou > 8 h. |
+| `missing_level` | niveau manquant | Le niveau est requis pour ce type d'agent. |
+| `missing_discipline` | discipline manquante | La discipline est requise au collège ou au lycée. |
+| `nominative` | mention nominative | Une mention nominative a été détectée. |
+
+### Codes utilisés à la validation manuelle (APE / admin)
+
+| Code | Libellé court | Libellé long |
+|---|---|---|
 | `duplicate` | doublon | Déjà signalé pour cette école/date. |
 | `wrong_school` | mauvais établissement | Le signalement ne concerne pas notre école. |
 | `nominative` | mention nominative | Le commentaire mentionne une personne. |
 | `incoherent` | incohérent | Les informations ne correspondent à rien de connu. |
+| `out_of_window` | hors fenêtre | Date hors de la fenêtre de 30 jours. |
 | `other` | autre | Motif libre (visible APE/admin uniquement). |
 
 ## Copywriting RGPD

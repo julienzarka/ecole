@@ -66,9 +66,7 @@ class ValidationResult {
   const ValidationResult.ok()
       : isValid = true,
         message = null;
-  const ValidationResult.invalid(String message)
-      : isValid = false,
-        message = message;
+  const ValidationResult.invalid(this.message) : isValid = false;
 
   final bool isValid;
   final String? message;
