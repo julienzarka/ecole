@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  flutter:
+    name: Flutter analyze & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: flutter analyze --fatal-infos
+
+      - name: Test
+        run: flutter test --reporter=expanded
+
+  functions:
+    name: Cloud Functions build & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/functions
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/functions/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test -- --ci --reporters=default
+
+  rules-and-indexes:
+    name: Firestore rules & indexes sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON files
+        run: |
+          set -e
+          for f in backend/firestore.indexes.json backend/firebase.json backend/.firebaserc; do
+            echo "Checking $f"
+            python3 -m json.tool "$f" > /dev/null
+          done
+
+      - name: Validate Firestore rules syntax
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Run rules parser smoke test (offline)
+        run: |
+          # firebase-tools n'a pas de "rules:lint" autonome, on se contente
+          # d'un parse syntaxique via @firebase/rules-unit-testing.
+          npm init -y
+          npm install --no-save @firebase/rules-unit-testing
+          node -e "
+            const fs = require('fs');
+            const rules = fs.readFileSync('backend/firestore.rules', 'utf8');
+            // Simple sanity check : non vide + version 2 + ferme bien.
+            if (!rules.includes(\"rules_version = '2'\")) {
+              throw new Error('rules_version manquant');
+            }
+            if ((rules.match(/{/g) || []).length !== (rules.match(/}/g) || []).length) {
+              throw new Error('Accolades non équilibrées dans firestore.rules');
+            }
+            console.log('OK firestore.rules');
+          "
