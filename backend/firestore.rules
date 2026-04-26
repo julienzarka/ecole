@@ -1,0 +1,110 @@
+rules_version = '2';
+
+// Cf. docs/architecture/firestore-rules.md pour les intentions.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----- helpers -----
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.role == 'admin';
+    }
+
+    function isApe() {
+      return isSignedIn() && request.auth.token.role == 'ape';
+    }
+
+    function hasSchool(uai) {
+      return isSignedIn() && uai in userDoc().schoolIds;
+    }
+
+    function isApeOf(uai) {
+      return isApe() && hasSchool(uai);
+    }
+
+    // Champs librement modifiables par l'utilisateur sur son propre doc.
+    function userMutableFields() {
+      return ['displayName', 'notificationsOptIn', 'fcmTokens', 'schoolIds', 'updatedAt'];
+    }
+
+    // ----- collections -----
+
+    match /users/{uid} {
+      allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+                    && uid == request.auth.uid
+                    && request.resource.data.role == 'parent';
+      allow update: if isSignedIn()
+                    && uid == request.auth.uid
+                    && request.resource.data.diff(resource.data)
+                       .affectedKeys().hasOnly(userMutableFields());
+      allow delete: if false; // Cloud Function uniquement
+    }
+
+    match /schools/{uai} {
+      allow read: if true;
+      allow write: if false; // batch import via Functions
+    }
+
+    match /apes/{apeId} {
+      allow read: if isSignedIn() && (
+        isAdmin() || hasSchool(resource.data.schoolId)
+      );
+      allow write: if false;
+    }
+
+    match /apeMembershipRequests/{reqId} {
+      allow read: if isSignedIn() && (
+        resource.data.uid == request.auth.uid || isAdmin()
+      );
+      allow create: if isSignedIn()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'pending';
+      allow update, delete: if false; // Cloud Function uniquement
+    }
+
+    match /reports/{reportId} {
+      allow read: if isSignedIn() && (
+        resource.data.reporterUid == request.auth.uid ||
+        isApeOf(resource.data.schoolId) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn()
+                    && request.resource.data.reporterUid == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && hasSchool(request.resource.data.schoolId);
+      allow update: if isSignedIn() && (
+        // L'auteur peut modifier ses signalements pending
+        (resource.data.reporterUid == request.auth.uid
+         && resource.data.status == 'pending'
+         && request.resource.data.reporterUid == resource.data.reporterUid) ||
+        // L'APE rattachée valide / rejette / doublon
+        (isApeOf(resource.data.schoolId)
+         && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'rejectCode', 'validatedBy', 'validatedAt', 'duplicateOf', 'updatedAt'])) ||
+        // L'admin peut tout faire
+        isAdmin()
+      );
+      allow delete: if isSignedIn()
+                    && resource.data.reporterUid == request.auth.uid
+                    && resource.data.status == 'pending';
+    }
+
+    match /aggregates/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /auditLog/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+  }
+}
